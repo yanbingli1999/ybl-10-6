@@ -28,11 +28,14 @@ export function TreatmentModal({ open, onClose, targetBed }: TreatmentModalProps
   const inventory = useGameStore(s => s.inventory);
   const staff = useGameStore(s => s.staff);
   const assignBedAndTreat = useGameStore(s => s.assignBedAndTreat);
+  const guardianSpirit = useGameStore(s => s.guardianSpirit);
 
   const [selectedHerbs, setSelectedHerbs] = useState<string[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<string | null>(null);
   const [playerDiagnosis, setPlayerDiagnosis] = useState<DiseaseType | null>(null);
   const [showAllDiseases, setShowAllDiseases] = useState(false);
+
+  const hasReduceHerbBlessing = guardianSpirit.blessingUsedToday && guardianSpirit.currentBlessing === "reduce_herb_cost";
 
   const beast = useMemo(() => queue.find(b => b.id === selectedBeastId), [queue, selectedBeastId]);
   const breed = beast ? BREEDS.find(b => b.id === beast.breedId) : null;
@@ -65,14 +68,22 @@ export function TreatmentModal({ open, onClose, targetBed }: TreatmentModalProps
     setSelectedHerbs(prev => {
       if (prev.includes(herbId)) return prev.filter(id => id !== herbId);
       if (prev.length >= 3) return prev;
-      if ((inventory[herbId] ?? 0) < 1) return prev;
+      const willBeLast = prev.length === 2;
+      const isBlessingFree = hasReduceHerbBlessing && willBeLast;
+      if ((inventory[herbId] ?? 0) < 1 && !isBlessingFree) return prev;
       return [...prev, herbId];
     });
   };
 
   const applyPrescription = (presc: { herbIds: string[] }) => {
-    const canAfford = presc.herbIds.every(id => (inventory[id] ?? 0) >= 1);
-    if (!canAfford) return;
+    if (hasReduceHerbBlessing && presc.herbIds.length > 1) {
+      const consumedHerbs = presc.herbIds.slice(0, -1);
+      const canAfford = consumedHerbs.every(id => (inventory[id] ?? 0) >= 1);
+      if (!canAfford) return;
+    } else {
+      const canAfford = presc.herbIds.every(id => (inventory[id] ?? 0) >= 1);
+      if (!canAfford) return;
+    }
     setSelectedHerbs([...presc.herbIds]);
   };
 
@@ -84,6 +95,13 @@ export function TreatmentModal({ open, onClose, targetBed }: TreatmentModalProps
     const h = HERBS.find(x => x.id === id);
     return sum + (h?.price ?? 0);
   }, 0);
+
+  const savedHerbId = hasReduceHerbBlessing && selectedHerbs.length > 1
+    ? selectedHerbs[selectedHerbs.length - 1]
+    : null;
+  const savedHerb = savedHerbId ? HERBS.find(h => h.id === savedHerbId) : null;
+  const savedCost = savedHerb ? savedHerb.price : 0;
+  const actualCost = herbsTotal - savedCost;
 
   const canSubmit = targetBed && selectedHerbs.length >= 1;
 
@@ -218,7 +236,9 @@ export function TreatmentModal({ open, onClose, targetBed }: TreatmentModalProps
             </div>
             <div className="grid grid-cols-2 gap-1.5 max-h-28 overflow-y-auto">
               {PRESCRIPTIONS.map(p => {
-                const canUse = p.herbIds.every(id => (inventory[id] ?? 0) >= 1);
+                const canUse = hasReduceHerbBlessing && p.herbIds.length > 1
+                  ? p.herbIds.slice(0, -1).every(id => (inventory[id] ?? 0) >= 1)
+                  : p.herbIds.every(id => (inventory[id] ?? 0) >= 1);
                 const isSelected = JSON.stringify([...selectedHerbs].sort()) === JSON.stringify([...p.herbIds].sort());
                 return (
                   <button
@@ -257,7 +277,9 @@ export function TreatmentModal({ open, onClose, targetBed }: TreatmentModalProps
               {HERBS.map(h => {
                 const count = inventory[h.id] ?? 0;
                 const selected = selectedHerbs.includes(h.id);
-                const disabled = (!selected && (count < 1 || selectedHerbs.length >= 3)) || !targetBed;
+                const willBeLastIfSelected = !selected && selectedHerbs.length === 2;
+                const isBlessingFree = hasReduceHerbBlessing && willBeLastIfSelected;
+                const disabled = (!selected && (count < 1 && !isBlessingFree || selectedHerbs.length >= 3)) || !targetBed;
                 return (
                   <button
                     key={h.id}
@@ -356,9 +378,20 @@ export function TreatmentModal({ open, onClose, targetBed }: TreatmentModalProps
                   : "未选药"}
               </span>
             </div>
-            <span className="text-clinic-deep font-semibold tabular-nums ml-auto">
-              💊 {herbsTotal} 金
-            </span>
+            {savedHerb ? (
+              <span className="text-clinic-deep font-semibold tabular-nums ml-auto flex items-center gap-1.5">
+                <span className="line-through text-gray-400">{herbsTotal} 金</span>
+                <ArrowRight className="w-3 h-3 text-emerald-500" />
+                <span className="text-emerald-600">{actualCost} 金</span>
+                <span className="tag bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">
+                  🌿 省 {savedHerb.emoji}{savedHerb.name} -{savedCost}金
+                </span>
+              </span>
+            ) : (
+              <span className="text-clinic-deep font-semibold tabular-nums ml-auto">
+                💊 {herbsTotal} 金
+              </span>
+            )}
             {selectedStaff && (
               <>
                 <span className="text-gray-300">·</span>

@@ -287,7 +287,14 @@ export const useGameStore = create<GameState>()(
           s.addNotification("error", "分配失败：灵兽或床位不可用");
           return;
         }
-        for (const hid of herbIds) {
+
+        const hasReduceHerbBlessing = s.guardianSpirit.blessingUsedToday && s.guardianSpirit.currentBlessing === "reduce_herb_cost";
+        let actualHerbIds = [...herbIds];
+        if (hasReduceHerbBlessing && actualHerbIds.length > 1) {
+          actualHerbIds = actualHerbIds.slice(0, -1);
+        }
+
+        for (const hid of actualHerbIds) {
           if ((s.inventory[hid] ?? 0) < 1) {
             s.addNotification("error", `药材不足`);
             return;
@@ -299,12 +306,6 @@ export const useGameStore = create<GameState>()(
             s.addNotification("error", "该护理员当前不可用");
             return;
           }
-        }
-
-        const hasReduceHerbBlessing = s.guardianSpirit.blessingUsedToday && s.guardianSpirit.currentBlessing === "reduce_herb_cost";
-        let actualHerbIds = [...herbIds];
-        if (hasReduceHerbBlessing && actualHerbIds.length > 1) {
-          actualHerbIds = actualHerbIds.slice(0, -1);
         }
 
         const newInventory = { ...s.inventory };
