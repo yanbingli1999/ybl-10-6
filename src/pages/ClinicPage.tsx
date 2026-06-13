@@ -3,6 +3,7 @@ import { WaitingQueue } from "@/components/WaitingQueue";
 import { BedGrid } from "@/components/BedGrid";
 import { InventoryPanel } from "@/components/InventoryPanel";
 import { TreatmentModal } from "@/components/TreatmentModal";
+import { GuardianSpiritPanel } from "@/components/GuardianSpiritPanel";
 import { useGameStore } from "@/store/gameStore";
 import type { Bed } from "@/types/game";
 import { useGameLoop } from "@/hooks/useGameLoop";
@@ -57,7 +58,8 @@ export default function ClinicPage() {
             </div>
           </div>
         </div>
-        <div className="lg:col-span-3 h-full overflow-hidden">
+        <div className="lg:col-span-3 h-full overflow-y-auto space-y-4 pr-1">
+          <GuardianSpiritPanel />
           <InventoryPanel />
         </div>
       </div>

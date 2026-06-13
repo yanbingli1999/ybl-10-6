@@ -9,6 +9,8 @@ export default function ArchivePage() {
   const relationships = useGameStore(s => s.beastRelationships);
   const records = useGameStore(s => s.medicalRecords);
   const reputation = useGameStore(s => s.reputation);
+  const breedCureStats = useGameStore(s => s.breedCureStats);
+  const guardianSpirit = useGameStore(s => s.guardianSpirit);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const totalCured = records.filter(r => r.success).length;
@@ -54,6 +56,8 @@ export default function ArchivePage() {
           {sortedBreeds.map(breed => {
             const isFound = discovered.includes(breed.id);
             const rel = relationships[breed.id];
+            const cureStats = breedCureStats[breed.id];
+            const isGuardian = guardianSpirit.activeBreedId === breed.id;
             const emoji = isFound
               ? (rel?.evolved && rel.highestStage > 0 ? breed.evolutionEmojis[Math.min(rel.highestStage, breed.evolutionEmojis.length - 1)] : breed.emoji)
               : "❓";
@@ -66,17 +70,25 @@ export default function ArchivePage() {
               <div
                 key={breed.id}
                 className={`relative rounded-xl border-2 p-3 transition-all hover:-translate-y-0.5 hover:shadow-md ${
-                  isFound
+                  isGuardian
+                    ? "bg-gradient-to-br from-amber-50 to-orange-50 border-amber-300 shadow-lg"
+                    : isFound
                     ? "bg-white border-clinic-border/60"
                     : "bg-gray-100/50 border-gray-200 opacity-70"
                 }`}
               >
+                {isGuardian && (
+                  <div className="absolute -top-2 -right-2 w-7 h-7 bg-amber-400 rounded-full flex items-center justify-center text-white text-xs shadow-lg animate-pulse">
+                    👑
+                  </div>
+                )}
                 <div className="text-4xl text-center mb-1" style={{ filter: isFound ? "none" : "grayscale(1)" }}>
                   {emoji}
                 </div>
                 <div className="text-center">
-                  <div className="text-sm font-semibold text-clinic-deep">
+                  <div className="text-sm font-semibold text-clinic-deep flex items-center justify-center gap-1">
                     {isFound ? breed.name : "未知品种"}
+                    {isGuardian && <span className="text-xs text-amber-600">守护灵</span>}
                   </div>
                   <div className="text-[10px] text-gray-500 flex items-center justify-center gap-1">
                     {isFound ? (
@@ -97,7 +109,11 @@ export default function ArchivePage() {
                     </div>
                     <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-gradient-to-r from-pink-400 to-clinic-amber transition-all"
+                        className={`h-full transition-all ${
+                          isGuardian
+                            ? "bg-gradient-to-r from-amber-400 to-orange-400"
+                            : "bg-gradient-to-r from-pink-400 to-clinic-amber"
+                        }`}
                         style={{ width: canEvolve ? "100%" : `${progress}%` }}
                       />
                     </div>
@@ -111,8 +127,11 @@ export default function ArchivePage() {
                         {canEvolve ? "🐣 下次治愈可触发进化！" : `升至下一阶段需 ${nextAt}`}
                       </div>
                     )}
-                    <div className="text-[10px] text-gray-400 text-center pt-0.5 border-t border-gray-100 mt-1">
-                      就诊 {rel?.visits ?? 0} 次
+                    <div className="text-[10px] text-gray-400 text-center pt-0.5 border-t border-gray-100 mt-1 flex justify-between">
+                      <span>就诊 {rel?.visits ?? 0} 次</span>
+                      {cureStats && (
+                        <span className="text-emerald-600">✓ 治愈 {cureStats.totalCures} 次</span>
+                      )}
                     </div>
                   </div>
                 )}

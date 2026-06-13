@@ -438,3 +438,41 @@ export const NOTES_FAIL = [
   "只得转往大城市的高级诊所求治。",
   "灵兽对这里产生了阴影，不愿再踏入半步。",
 ];
+
+import type { Blessing } from "@/types/game";
+
+export const BLESSINGS: Blessing[] = [
+  {
+    id: "soothe_waiting",
+    name: "安抚候诊",
+    emoji: "💆",
+    description: "守护灵散发安抚气息，缓解候诊灵兽的焦虑。",
+    effect: "今日所有候诊灵兽满意度下降速度降低50%，等待时间上限延长4小时。",
+    trustCost: 15,
+    cooldownDays: 1,
+  },
+  {
+    id: "reduce_herb_cost",
+    name: "减少药耗",
+    emoji: "🌿",
+    description: "守护灵加持采药技巧，减少药材消耗。",
+    effect: "今日所有治疗消耗的药材数量减少1味（至少保留1味）。",
+    trustCost: 20,
+    cooldownDays: 2,
+  },
+  {
+    id: "stabilize_severe",
+    name: "稳定重症",
+    emoji: "🛡️",
+    description: "守护灵释放守护之力，稳定重症灵兽病情。",
+    effect: "今日重症和危重灵兽治疗成功率+15%，病情不会在候诊时恶化。",
+    trustCost: 25,
+    cooldownDays: 2,
+  },
+];
+
+export const GUARDIAN_SPIRIT_CONFIG = {
+  minCuresForGuardian: 5,
+  trustDecayPerDay: 2,
+  minTrustForBlessing: 30,
+};

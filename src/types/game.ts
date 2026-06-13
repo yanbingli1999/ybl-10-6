@@ -152,3 +152,29 @@ export interface Notification {
   message: string;
   timestamp: number;
 }
+
+export type BlessingType = "soothe_waiting" | "reduce_herb_cost" | "stabilize_severe";
+
+export interface Blessing {
+  id: BlessingType;
+  name: string;
+  emoji: string;
+  description: string;
+  effect: string;
+  trustCost: number;
+  cooldownDays: number;
+}
+
+export interface BreedCureStats {
+  breedId: string;
+  totalCures: number;
+  lastCureDay: number;
+}
+
+export interface GuardianSpirit {
+  activeBreedId: string | null;
+  currentBlessing: BlessingType | null;
+  blessingUsedToday: boolean;
+  lastBlessingDay: number;
+  blessingCooldowns: Record<BlessingType, number>;
+}

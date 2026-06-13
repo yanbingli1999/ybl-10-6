@@ -13,6 +13,9 @@ import type {
   WeatherType,
   Prescription,
   TreatmentResult,
+  BreedCureStats,
+  GuardianSpirit,
+  BlessingType,
 } from "@/types/game";
 import {
   BREEDS,
@@ -26,6 +29,8 @@ import {
   NOTES_SUCCESS,
   NOTES_FAIL,
   DISEASE_NAMES,
+  BLESSINGS,
+  GUARDIAN_SPIRIT_CONFIG,
 } from "@/data/gameData";
 
 const DISEASE_TYPES: DiseaseType[] = [
@@ -119,6 +124,8 @@ export interface GameState {
   selectedBeastId: string | null;
   selectedBedId: string | null;
   lastBeastSpawn: number;
+  breedCureStats: Record<string, BreedCureStats>;
+  guardianSpirit: GuardianSpirit;
 
   // Actions
   togglePause: () => void;
@@ -136,6 +143,10 @@ export interface GameState {
   _spawnInitialBeasts: () => void;
   _addTransaction: (type: Transaction["type"], category: string, amount: number, description: string) => void;
   _dailySettlement: () => void;
+  selectBlessing: (blessingId: BlessingType) => void;
+  useBlessing: () => void;
+  _updateGuardianBreed: () => void;
+  _updateBreedCureStats: (breedId: string) => void;
 }
 
 function createInitialBeds(): Bed[] {
@@ -182,6 +193,18 @@ function buildInitialState() {
     selectedBeastId: null,
     selectedBedId: null,
     lastBeastSpawn: 8,
+    breedCureStats: {} as Record<string, BreedCureStats>,
+    guardianSpirit: {
+      activeBreedId: null,
+      currentBlessing: null,
+      blessingUsedToday: false,
+      lastBlessingDay: 0,
+      blessingCooldowns: {
+        soothe_waiting: 0,
+        reduce_herb_cost: 0,
+        stabilize_severe: 0,
+      },
+    } as GuardianSpirit,
   };
 }
 
@@ -278,9 +301,15 @@ export const useGameStore = create<GameState>()(
           }
         }
 
+        const hasReduceHerbBlessing = s.guardianSpirit.blessingUsedToday && s.guardianSpirit.currentBlessing === "reduce_herb_cost";
+        let actualHerbIds = [...herbIds];
+        if (hasReduceHerbBlessing && actualHerbIds.length > 1) {
+          actualHerbIds = actualHerbIds.slice(0, -1);
+        }
+
         const newInventory = { ...s.inventory };
-        herbIds.forEach(hid => { newInventory[hid] = (newInventory[hid] ?? 0) - 1; });
-        const herbsCost = herbIds.reduce((sum, hid) => {
+        actualHerbIds.forEach(hid => { newInventory[hid] = (newInventory[hid] ?? 0) - 1; });
+        const herbsCost = actualHerbIds.reduce((sum, hid) => {
           const h = HERBS.find(x => x.id === hid);
           return sum + (h?.price ?? 0);
         }, 0);
@@ -408,6 +437,8 @@ export const useGameStore = create<GameState>()(
             beastRelationships: { ...st.beastRelationships, [breed.id]: newRel },
             medicalRecords: [record, ...st.medicalRecords],
           }));
+          get()._updateBreedCureStats(breed.id);
+          get()._updateGuardianBreed();
           get()._addTransaction("income", "诊金收入", revenue, `治愈 ${breed.name}·${beast.name}${evolved ? "(进化加成)" : ""}`);
           const evolveMsg = evolved ? " 🎉灵兽发生进化！额外获得加成！" : "";
           const diagMsg = diagnosisCorrect ? " 🔍诊断正确！" : "";
@@ -487,6 +518,24 @@ export const useGameStore = create<GameState>()(
           return { ...st, status: "idle" as const, assignedBedId: null };
         });
 
+        // 祝福冷却递减
+        const newCooldowns = { ...s.guardianSpirit.blessingCooldowns };
+        (Object.keys(newCooldowns) as BlessingType[]).forEach(key => {
+          if (newCooldowns[key] > 0) newCooldowns[key]--;
+        });
+
+        // 守护灵亲密度自然衰减
+        const newRelationships = { ...s.beastRelationships };
+        if (s.guardianSpirit.activeBreedId) {
+          const guardianRel = newRelationships[s.guardianSpirit.activeBreedId];
+          if (guardianRel) {
+            newRelationships[s.guardianSpirit.activeBreedId] = {
+              ...guardianRel,
+              trust: Math.max(0, guardianRel.trust - GUARDIAN_SPIRIT_CONFIG.trustDecayPerDay),
+            };
+          }
+        }
+
         set(st => ({
           currentDay: day + 1,
           currentTime: 8,
@@ -494,6 +543,13 @@ export const useGameStore = create<GameState>()(
           staff: newRelStaff,
           money: Math.max(0, st.money - totalWage + bonusMoney),
           lastBeastSpawn: 8,
+          beastRelationships: newRelationships,
+          guardianSpirit: {
+            ...st.guardianSpirit,
+            blessingUsedToday: false,
+            currentBlessing: null,
+            blessingCooldowns: newCooldowns,
+          },
         }));
         get()._addTransaction("expense", "员工工资", totalWage, `第${day}天员工薪资`);
         if (bonusMoney !== 0) {
@@ -504,12 +560,134 @@ export const useGameStore = create<GameState>()(
             `第${day}天结算：${eventMsg} (${bonusMoney >= 0 ? "+" : ""}${bonusMoney}金)`
           );
         }
+        if (s.guardianSpirit.activeBreedId) {
+          const breed = BREEDS.find(b => b.id === s.guardianSpirit.activeBreedId);
+          get().addNotification("info", `🌟 守护灵${breed?.name}每日消耗${GUARDIAN_SPIRIT_CONFIG.trustDecayPerDay}点亲密度。`);
+        }
         get().addNotification("info", `=== 第${day}天结算 === 支付薪资${totalWage}金。${eventMsg} 新的一天开始啦！`);
       },
 
       resetGame: () => {
         set(buildInitialState());
         setTimeout(() => get()._spawnInitialBeasts(), 100);
+      },
+
+      _updateBreedCureStats: (breedId) => {
+        const s = get();
+        const current = s.breedCureStats[breedId];
+        const newStats = {
+          ...s.breedCureStats,
+          [breedId]: {
+            breedId,
+            totalCures: (current?.totalCures ?? 0) + 1,
+            lastCureDay: s.currentDay,
+          },
+        };
+        set({ breedCureStats: newStats });
+      },
+
+      _updateGuardianBreed: () => {
+        const s = get();
+        const stats = Object.values(s.breedCureStats);
+        if (stats.length === 0) return;
+
+        const sorted = [...stats].sort((a, b) => b.totalCures - a.totalCures);
+        const topBreed = sorted[0];
+
+        if (topBreed.totalCures >= GUARDIAN_SPIRIT_CONFIG.minCuresForGuardian) {
+          const prevBreedId = s.guardianSpirit.activeBreedId;
+          if (prevBreedId !== topBreed.breedId) {
+            const breed = BREEDS.find(b => b.id === topBreed.breedId);
+            set({
+              guardianSpirit: {
+                ...s.guardianSpirit,
+                activeBreedId: topBreed.breedId,
+              },
+            });
+            if (prevBreedId) {
+              const prevBreed = BREEDS.find(b => b.id === prevBreedId);
+              get().addNotification("info", `🌟 守护灵更替：${prevBreed?.name}退隐，${breed?.name}成为新的诊所守护灵！`);
+            } else {
+              get().addNotification("success", `🎉 诊所守护灵诞生：${breed?.name}凝聚了足够的信仰之力，成为守护灵！`);
+            }
+          }
+        }
+      },
+
+      selectBlessing: (blessingId) => {
+        const s = get();
+        if (!s.guardianSpirit.activeBreedId) {
+          s.addNotification("warning", "暂无守护灵，无法使用祝福");
+          return;
+        }
+        if (s.guardianSpirit.blessingUsedToday) {
+          s.addNotification("warning", "今日已使用过祝福，请明日再来");
+          return;
+        }
+        const cooldown = s.guardianSpirit.blessingCooldowns[blessingId] ?? 0;
+        if (cooldown > 0) {
+          const blessing = BLESSINGS.find(b => b.id === blessingId);
+          s.addNotification("warning", `${blessing?.name}冷却中，还需${cooldown}天`);
+          return;
+        }
+        const blessing = BLESSINGS.find(b => b.id === blessingId);
+        const rel = s.beastRelationships[s.guardianSpirit.activeBreedId];
+        if (!rel || rel.trust < blessing!.trustCost) {
+          s.addNotification("warning", `守护灵亲密度不足，需要${blessing!.trustCost}点`);
+          return;
+        }
+        if (rel.trust < GUARDIAN_SPIRIT_CONFIG.minTrustForBlessing) {
+          s.addNotification("warning", `守护灵亲密度需达到${GUARDIAN_SPIRIT_CONFIG.minTrustForBlessing}才能使用祝福`);
+          return;
+        }
+        set({
+          guardianSpirit: {
+            ...s.guardianSpirit,
+            currentBlessing: blessingId,
+          },
+        });
+        s.addNotification("info", `已选择祝福：${blessing?.emoji} ${blessing?.name}`);
+      },
+
+      useBlessing: () => {
+        const s = get();
+        if (!s.guardianSpirit.currentBlessing || !s.guardianSpirit.activeBreedId) {
+          s.addNotification("warning", "请先选择一个祝福");
+          return;
+        }
+        if (s.guardianSpirit.blessingUsedToday) {
+          s.addNotification("warning", "今日已使用过祝福");
+          return;
+        }
+        const blessingId = s.guardianSpirit.currentBlessing;
+        const blessing = BLESSINGS.find(b => b.id === blessingId);
+        const breedId = s.guardianSpirit.activeBreedId;
+        const rel = s.beastRelationships[breedId];
+
+        if (!blessing || !rel) return;
+
+        const newTrust = Math.max(0, rel.trust - blessing.trustCost);
+        const newCooldowns = { ...s.guardianSpirit.blessingCooldowns };
+        newCooldowns[blessingId] = blessing.cooldownDays;
+
+        set({
+          beastRelationships: {
+            ...s.beastRelationships,
+            [breedId]: {
+              ...rel,
+              trust: newTrust,
+            },
+          },
+          guardianSpirit: {
+            ...s.guardianSpirit,
+            blessingUsedToday: true,
+            lastBlessingDay: s.currentDay,
+            blessingCooldowns: newCooldowns,
+          },
+        });
+
+        const breed = BREEDS.find(b => b.id === breedId);
+        get().addNotification("success", `✨ ${breed?.name}施展了「${blessing.name}」！消耗${blessing.trustCost}点亲密度。${blessing.effect}`);
       },
 
       tickGame: (steps = 1) => {
@@ -524,19 +702,28 @@ export const useGameStore = create<GameState>()(
           let state = { ...s };
 
           // 1. 队列恶化
+          const hasSootheBlessing = state.guardianSpirit.blessingUsedToday && state.guardianSpirit.currentBlessing === "soothe_waiting";
+          const hasStabilizeBlessing = state.guardianSpirit.blessingUsedToday && state.guardianSpirit.currentBlessing === "stabilize_severe";
+
+          const maxWaitHours = hasSootheBlessing ? 18 : 14;
+          const satReductionMin = hasSootheBlessing ? 1 : 2;
+          const satReductionMax = hasSootheBlessing ? 2 : 5;
+
           const newQueue: Beast[] = state.waitingQueue.map(b => {
             const waited = b.waitHours + 1;
             let sev = b.severity;
-            let sat = Math.max(0, b.satisfaction - randomInt(2, 5));
-            if (waited > 4 && sev === "mild") sev = "moderate";
-            else if (waited > 7 && sev === "moderate") sev = "severe";
-            else if (waited > 10 && sev === "severe") sev = "critical";
+            let sat = Math.max(0, b.satisfaction - randomInt(satReductionMin, satReductionMax));
+            if (!hasStabilizeBlessing || (sev !== "severe" && sev !== "critical")) {
+              if (waited > 4 && sev === "mild") sev = "moderate";
+              else if (waited > 7 && sev === "moderate") sev = "severe";
+              else if (waited > 10 && sev === "severe") sev = "critical";
+            }
             return { ...b, waitHours: waited, severity: sev, satisfaction: sat };
           });
           const stillWaiting: Beast[] = [];
           let repLossQueue = 0;
           for (const b of newQueue) {
-            if (b.waitHours > 14) {
+            if (b.waitHours > maxWaitHours) {
               repLossQueue += 8;
               const breedName = BREEDS.find(x => x.id === b.breedId)?.name || "灵兽";
               get().addNotification("warning", `${breedName}·${b.name} 等待太久，失望离去。声望-8`);
@@ -566,7 +753,12 @@ export const useGameStore = create<GameState>()(
               // 疾病严重度减成
               const sev = b.beastSnapshot?.severity ?? "mild";
               const sevDebuff = { mild: 0, moderate: -5, severe: -10, critical: -15 }[sev] || 0;
-              finalRate = Math.max(5, Math.min(98, finalRate + sevDebuff));
+              let finalRateWithDebuff = finalRate + sevDebuff;
+              // 稳定重症祝福加成
+              if (hasStabilizeBlessing && (sev === "severe" || sev === "critical")) {
+                finalRateWithDebuff += 15;
+              }
+              finalRate = Math.max(5, Math.min(98, finalRateWithDebuff));
               result = Math.random() * 100 <= finalRate ? "success" : "fail";
             }
             return { ...b, treatmentProgress: Math.min(newProgress, b.treatmentTotal), result };
